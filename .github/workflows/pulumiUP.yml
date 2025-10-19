@@ -22,12 +22,12 @@ jobs:
       - name: Checkout Pulumi Code
         uses: actions/checkout@v4
         
-      - name: Configure AWS Credentials
+      - name: Configure AWS Credentials (Assume Role via OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: 'eu-west-2'
+          role-to-assume: arn:aws:iam::140293477718:role/api.tommybradbury.co.uk-pulumiDeploymentUser
+          role-duration-seconds: 900
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
