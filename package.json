@@ -1,0 +1,15 @@
+{
+  "name": "api.tommybradbury.co.uk",
+  "scripts": {
+    "test": "echo \"example!\" && exit 0"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^6.0.0",
+    "@pulumi/pulumi": "^3.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
