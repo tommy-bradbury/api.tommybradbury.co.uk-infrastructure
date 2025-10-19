@@ -18,8 +18,6 @@ new aws.iam.RolePolicyAttachment("lambdaPolicyAttachment", {
     policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
 });
 
-// --- HELPER FUNCTION FOR CREATING AND DEPLOYING LAMBDAS ---
-// This function encapsulates the repeating logic for creating a Function, Version, and Dev Alias.
 /**
  * Creating a Function, Version, and Dev Alias for a given lambda.
  * 
