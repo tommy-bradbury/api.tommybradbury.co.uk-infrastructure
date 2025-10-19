@@ -1,0 +1,75 @@
+
+name: Pulumi UP
+
+on:
+  repository_dispatch:
+    types: [new-artifact-available]
+
+jobs:
+  deploy:
+    env:
+      AWS_REGION: ${{ github.event.client_payload.aws_region }}
+      ARTIFACT_BUCKET: ${{ github.event.client_payload.artifact_bucket }}
+      ARTIFACT_LIST: |
+        auth_key:auth.zip
+        
+    runs-on: ubuntu-latest
+    
+    # job only runs if triggered by change to api.tommybradbury.co.uk
+    if: github.event.action == 'new-artifact-available'
+
+    steps:
+      - name: Checkout Pulumi Code
+        uses: actions/checkout@v4
+        
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm install
+
+      - name: Login to Pulumi
+        uses: pulumi/actions@v5
+        with:
+          command: login
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+
+      - name: Create Lambda Code Directory
+        run: mkdir -p lambda_code
+
+      - name: Download All Artifacts from S3
+        run: |
+          # loop through ARTIFACT_LIST - IFS: internal field seperator
+          while IFS=: read -r payload_key target_file; do
+          
+            ARTIFACT_KEY=$(jq -r --arg key "$payload_key" '.client_payload[$key]' "$GITHUB_EVENT_PATH")
+            
+            echo "--- Downloading $target_file (Key: $ARTIFACT_KEY) ---"
+
+            if [ -z "$ARTIFACT_KEY" ] || [ "$ARTIFACT_KEY" = "null" ]; then
+                echo "Payload key '$payload_key' not found or empty. Skipping download."
+                continue
+            fi
+            
+            aws s3 cp s3://${{ env.ARTIFACT_BUCKET }}/$ARTIFACT_KEY ./lambda_code/$target_file
+            
+          done <<< "$ARTIFACT_LIST"
+        shell: bash
+
+      - name: Deploy
+        uses: pulumi/actions@v5
+        with:
+          command: up
+          stack-name: dev
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
