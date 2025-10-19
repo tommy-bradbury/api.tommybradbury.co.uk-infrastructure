@@ -15,6 +15,10 @@ jobs:
         
     runs-on: ubuntu-latest
     
+    permissions:
+      id-token: write
+      contents: read
+    
     # job only runs if triggered by change to api.tommybradbury.co.uk
     if: github.event.action == 'new-artifact-available'
 
