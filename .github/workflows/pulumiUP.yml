@@ -31,19 +31,19 @@ jobs:
           role-duration-seconds: 900
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Verify AWS Credentials and Permissions
+      - name: Fetch and Display Active IAM Policy
         run: |
-          echo "--- Verifying AWS identity ---"
-          aws sts get-caller-identity
+          echo "--- Fetching the active IAM policy document from the role ---"
+          # This command retrieves the policy that is ACTUALLY attached to the role in AWS.
+          # NOTE: If your policy has a different name, you will need to update it here.
+          # Based on previous logs, the policy is likely named 'api.tommybradbury.co.uk-pulumiDeployment'.
+          POLICY_NAME="api.tommybradbury.co.uk-pulumiDeployment"
           
-          echo "--- Simulating iam:CreateServiceLinkedRole permission ---"
-          # We use the static role ARN and provide the missing context key
-          # required by the Condition in the IAM policy.
-          aws iam simulate-principal-policy \
-            --policy-source-arn "arn:aws:iam::140293477718:role/api.tommybradbury.co.uk-pulumiDeploymentUser" \
-            --action-names "iam:CreateServiceLinkedRole" \
-            --resource-arns "arn:aws:iam::*:role/aws-service-role/apigateway.amazonaws.com/AWSServiceRoleForAPIGateway" \
-            --context-entries '{"ContextKeyName": "iam:AWSServiceName", "ContextKeyValues": ["apigateway.amazonaws.com"], "ContextKeyType": "string"}'
+          echo "Attempting to fetch inline policy named: $POLICY_NAME"
+          aws iam get-role-policy \
+            --role-name "api.tommybradbury.co.uk-pulumiDeploymentUser" \
+            --policy-name "$POLICY_NAME" \
+            --query 'PolicyDocument' --output json | jq .
         shell: bash
 
       - name: Setup Node.js
@@ -82,10 +82,10 @@ jobs:
           done <<< "$ARTIFACT_LIST"
         shell: bash
 
-      - name: Verify Downloaded Artifacts
-        run: |
-          echo "Verifying contents of the working directory..."
-          ls -lR
+#      - name: Verify Downloaded Artifacts
+#        run: |
+#          echo "Verifying contents of the working directory..."
+#          ls -lR
 
       - name: Deploy with Pulumi
         uses: pulumi/actions@v5
