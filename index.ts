@@ -5,6 +5,7 @@ import * as path from "path";
 // --- Configuration ---
 const accountId = aws.getCallerIdentity().then(identity => identity.accountId);
 const domainName = "api.tommybradbury.co.uk";
+const certificateArn = "arn:aws:acm:eu-west-2:140293477718:certificate/dc46af13-b4c4-4759-bf96-5b5b04444b4f";
 const brefPhpLayerArn = "arn:aws:lambda:eu-west-2:534081306603:layer:php-84:34";
 
 // --- IAM Role for Lambda ---
@@ -18,10 +19,9 @@ new aws.iam.RolePolicyAttachment("lambdaPolicyAttachment", {
 });
 
 // --- API Gateway ---
-// Create a new API Gateway, as the previous one was deleted.
 const api = new aws.apigatewayv2.Api("httpApi", {
     protocolType: "HTTP",
-    name: "api.tommybradbury.co.uk-auth-service", // A specific name for this new API
+    name: "api.tommybradbury.co.uk-auth-service",
 });
 
 // --- Helper Function for Lambda Creation ---
@@ -45,7 +45,6 @@ function createBrefFunction(name: string, zipFileName: string, description: stri
         name: "dev",
     }, { dependsOn: [lambdaFunction] });
 
-    // Grant API Gateway permission to invoke the Lambda alias
     const permission = new aws.lambda.Permission(`${name}ApiGatewayPermission`, {
         action: "lambda:InvokeFunction",
         function: devAlias.arn,
@@ -97,15 +96,20 @@ const stage = new aws.apigatewayv2.Stage("apiStage", {
 });
 
 // --- Custom Domain ---
-// FIX (TS2551 & TS2694): Use the static .get() method to look up the existing domain name.
-// This is a more robust way of referencing an existing resource.
-const existingDomain = aws.apigatewayv2.DomainName.get("existingApiDomain", domainName);
+// FIX: Changed from .get() to new aws.apigatewayv2.DomainName() to create the domain.
+const apiDomain = new aws.apigatewayv2.DomainName("apiDomain", {
+    domainName: domainName,
+    domainNameConfiguration: {
+        certificateArn: certificateArn,
+        endpointType: "REGIONAL",
+        securityPolicy: "TLS_1_2",
+    },
+});
 
 // --- API Mapping ---
 const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
     apiId: api.id,
-    // FIX: Use the 'domainName' property directly from the retrieved resource.
-    domainName: existingDomain.domainName,
+    domainName: apiDomain.domainName,
     stage: stage.id,
 });
 
@@ -113,7 +117,7 @@ const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
 export const apiUrl = api.apiEndpoint;
 export const customApiUrl = `https://${domainName}/auth`;
 export const lambdaVersion = authService.version;
-// FIX (TS7006): Access properties directly from the resource object.
-export const dnsTargetDomainName = existingDomain.domainNameConfiguration.apply(dnc => dnc.targetDomainName);
-export const dnsTargetHostedZoneId = existingDomain.domainNameConfiguration.apply(dnc => dnc.hostedZoneId);
+// FIX: Use the newly created domain resource for the outputs.
+export const dnsTargetDomainName = apiDomain.domainNameConfiguration.apply(dnc => dnc.targetDomainName);
+export const dnsTargetHostedZoneId = apiDomain.domainNameConfiguration.apply(dnc => dnc.hostedZoneId);
 
