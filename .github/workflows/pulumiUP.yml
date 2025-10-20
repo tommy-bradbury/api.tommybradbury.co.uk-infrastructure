@@ -25,6 +25,9 @@ jobs:
     steps:
       - name: Checkout Pulumi Code
         uses: actions/checkout@v4
+      - name: Dump GitHub Event Payload
+        run: echo '${{ toJSON(github.event) }}' | jq
+        shell: bash
         
       - name: Configure AWS Credentials (Assume Role via OIDC)
         uses: aws-actions/configure-aws-credentials@v4
