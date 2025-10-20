@@ -1,4 +1,3 @@
-
 name: Pulumi UP
 
 on:
@@ -7,28 +6,24 @@ on:
 
 jobs:
   deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    if: github.event.action == 'new-artifact-available'
     env:
       AWS_REGION: ${{ github.event.client_payload.aws_region }}
       ARTIFACT_BUCKET: ${{ github.event.client_payload.artifact_bucket }}
       ARTIFACT_LIST: |
         auth_key:lambda-auth.zip
-        
-    runs-on: ubuntu-latest
-    
-    permissions:
-      id-token: write
-      contents: read
-    
-    # job only runs if triggered by change to api.tommybradbury.co.uk
-    if: github.event.action == 'new-artifact-available'
-
     steps:
       - name: Checkout Pulumi Code
         uses: actions/checkout@v4
+
       - name: Dump GitHub Event Payload
         run: echo '${{ toJSON(github.event) }}' | jq
         shell: bash
-        
+
       - name: Configure AWS Credentials (Assume Role via OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -41,6 +36,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
       - run: npm install
 
       - name: Create Lambda Code Directory
@@ -50,17 +46,23 @@ jobs:
         run: |
           # loop through ARTIFACT_LIST - IFS: internal field seperator
           while IFS=: read -r payload_key target_file; do
-          
+            # Trim whitespace from target_file
+            target_file=$(echo "$target_file" | tr -d '[:space:]')
+            
+            # Skip empty lines that might result from the multi-line string
+            if [ -z "$payload_key" ]; then
+              continue
+            fi
+            
             ARTIFACT_KEY=$(jq -r --arg key "$payload_key" '.client_payload[$key]' "$GITHUB_EVENT_PATH")
             
             echo "--- Downloading $target_file (Key: $ARTIFACT_KEY) ---"
-
             if [ -z "$ARTIFACT_KEY" ] || [ "$ARTIFACT_KEY" = "null" ]; then
                 echo "Payload key '$payload_key' not found or empty. Skipping download."
                 continue
             fi
             
-            aws s3 cp s3://${{ env.ARTIFACT_BUCKET }}/$ARTIFACT_KEY ./lambda_code/$target_file
+            aws s3 cp "s3://${{ env.ARTIFACT_BUCKET }}/$ARTIFACT_KEY" "./lambda_code/$target_file"
             
           done <<< "$ARTIFACT_LIST"
         shell: bash
@@ -70,10 +72,11 @@ jobs:
           echo "Verifying contents of the working directory..."
           ls -lR
 
-      - name: Deploy
+      - name: Deploy with Pulumi
         uses: pulumi/actions@v5
         with:
           command: up
           stack-name: dev
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
