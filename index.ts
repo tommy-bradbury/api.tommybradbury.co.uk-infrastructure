@@ -98,8 +98,7 @@ const stage = new aws.apigatewayv2.Stage("apiStage", {
 });
 
 // --- Custom Domain ---
-// FIX (TS2551): The function is getDomainName. The error is unusual and may be
-// related to your local @pulumi/aws package version, but this is the correct usage.
+// FIX (TS2551): The function is getDomainName.
 const existingDomain = aws.apigatewayv2.getDomainName({
     domainName: domainName,
 });
@@ -108,7 +107,7 @@ const existingDomain = aws.apigatewayv2.getDomainName({
 const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
     apiId: api.id,
     // FIX: Use the 'domainName' property from the lookup result.
-    domainName: existingDomain.then(d => d.domainName),
+    domainName: existingDomain.then((d: aws.apigatewayv2.GetDomainNameResult) => d.domainName),
     stage: stage.id,
 });
 
