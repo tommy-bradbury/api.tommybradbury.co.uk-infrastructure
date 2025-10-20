@@ -74,7 +74,26 @@ new aws.apigatewayv2.Route("authANYProxyRoute", {
 });
 
 // Use autoDeploy, no explicit Deployment resource
-const httpLogs = new aws.cloudwatch.LogGroup("httpApiAccessLogs", { retentionInDays: 14 });
+const httpLogs = new aws.cloudwatch.LogGroup("httpApiAccessLogs", {
+  name: "/aws/http-api/auth-access",
+  retentionInDays: 14,
+});
+
+// Allow API Gateway to write to this log group (optional but recommended)
+const apiGwLogsPolicy = new aws.cloudwatch.LogResourcePolicy("apiGwAccessLogsPolicy", {
+  policyName: "ApiGatewayAccessLogs",
+  policyDocument: httpLogs.arn.apply(lgArn => JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [{
+      Sid: "ApiGwToCwLogs",
+      Effect: "Allow",
+      Principal: { Service: "apigateway.amazonaws.com" },
+      Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+      Resource: `${lgArn}:*`,
+    }],
+  })),
+});
+
 const stage = new aws.apigatewayv2.Stage("apiStage", {
   apiId: api.id,
   name: "$default",
@@ -83,20 +102,17 @@ const stage = new aws.apigatewayv2.Stage("apiStage", {
     destinationArn: httpLogs.arn,
     format: JSON.stringify({
       requestId: "$context.requestId",
-      time: "$context.time",
+      requestTime: "$context.requestTime",
       httpMethod: "$context.httpMethod",
       path: "$context.path",
       routeKey: "$context.routeKey",
       status: "$context.status",
-      integrationStatus: "$context.integrationStatus",
-      errorMessage: "$context.error.message",
-      integrationErrorMessage: "$context.integrationErrorMessage",
+      protocol: "$context.protocol",
       responseLength: "$context.responseLength",
-      ip: "$context.identity.sourceIp",
-      userAgent: "$context.identity.userAgent",
+      error: "$context.error.message"
     }),
   },
-});
+}, { dependsOn: [apiGwLogsPolicy] });
 
 // Custom domain (must be in the same region as API; cert must be in that region)
 const apiDomain = new aws.apigatewayv2.DomainName("apiDomain", {
