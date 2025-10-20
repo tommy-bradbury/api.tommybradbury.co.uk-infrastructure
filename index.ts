@@ -48,7 +48,6 @@ function createBrefFunction(name: string, zipFileName: string, description: stri
     // Grant API Gateway permission to invoke the Lambda alias
     const permission = new aws.lambda.Permission(`${name}ApiGatewayPermission`, {
         action: "lambda:InvokeFunction",
-        // FIX (TS2322): Pass the ARN of the alias, not the alias object itself.
         function: devAlias.arn,
         principal: "apigateway.amazonaws.com",
         sourceArn: pulumi.interpolate`arn:aws:execute-api:${aws.config.region}:${accountId}:${api.id}/*/*`,
@@ -98,16 +97,15 @@ const stage = new aws.apigatewayv2.Stage("apiStage", {
 });
 
 // --- Custom Domain ---
-// FIX (TS2551): The function is getDomainName.
-const existingDomain = aws.apigatewayv2.getDomainName({
-    domainName: domainName,
-});
+// FIX (TS2551 & TS2694): Use the static .get() method to look up the existing domain name.
+// This is a more robust way of referencing an existing resource.
+const existingDomain = aws.apigatewayv2.DomainName.get("existingApiDomain", domainName);
 
 // --- API Mapping ---
 const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
     apiId: api.id,
-    // FIX: Use the 'domainName' property from the lookup result.
-    domainName: existingDomain.then((d: aws.apigatewayv2.GetDomainNameResult) => d.domainName),
+    // FIX: Use the 'domainName' property directly from the retrieved resource.
+    domainName: existingDomain.domainName,
     stage: stage.id,
 });
 
@@ -115,7 +113,7 @@ const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
 export const apiUrl = api.apiEndpoint;
 export const customApiUrl = `https://${domainName}/auth`;
 export const lambdaVersion = authService.version;
-// FIX (TS7006): Explicitly type 'd' to resolve implicit 'any' type errors.
-export const dnsTargetDomainName = existingDomain.then((d: aws.apigatewayv2.GetDomainNameResult) => d.domainNameConfiguration?.targetDomainName);
-export const dnsTargetHostedZoneId = existingDomain.then((d: aws.apigatewayv2.GetDomainNameResult) => d.domainNameConfiguration?.hostedZoneId);
+// FIX (TS7006): Access properties directly from the resource object.
+export const dnsTargetDomainName = existingDomain.domainNameConfiguration.apply(dnc => dnc.targetDomainName);
+export const dnsTargetHostedZoneId = existingDomain.domainNameConfiguration.apply(dnc => dnc.hostedZoneId);
 
