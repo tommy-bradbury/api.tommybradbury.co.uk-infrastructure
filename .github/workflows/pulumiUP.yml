@@ -30,6 +30,19 @@ jobs:
           role-to-assume: arn:aws:iam::140293477718:role/api.tommybradbury.co.uk-pulumiDeploymentUser
           role-duration-seconds: 900
           aws-region: ${{ env.AWS_REGION }}
+          
+      - name: Verify AWS Credentials and Permissions
+        run: |
+          echo "--- Verifying AWS identity ---"
+          ASSUMED_ROLE_ARN=$(aws sts get-caller-identity --query Arn --output text)
+          echo "Currently assumed role: $ASSUMED_ROLE_ARN"
+          
+          echo "--- Simulating iam:CreateServiceLinkedRole permission ---"
+          aws iam simulate-principal-policy \
+            --policy-source-arn "$ASSUMED_ROLE_ARN" \
+            --action-names "iam:CreateServiceLinkedRole" \
+            --resource-arns "arn:aws:iam::*:role/aws-service-role/apigateway.amazonaws.com/AWSServiceRoleForAPIGateway"
+        shell: bash
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
