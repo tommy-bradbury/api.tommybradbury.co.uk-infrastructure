@@ -41,7 +41,7 @@ jobs:
           
           echo "Attempting to fetch inline policy named: $POLICY_NAME"
           aws iam get-role-policy \
-            --role-name "api.tommybradbury.co.uk-pulumiDeploymentUser" \
+            --role-name "Pulumi-APIDeployment-Policy-v2" \
             --policy-name "$POLICY_NAME" \
             --query 'PolicyDocument' --output json | jq .
         shell: bash
