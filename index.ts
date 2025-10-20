@@ -1,14 +1,13 @@
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 import * as path from "path";
-import * as fs from "fs";
 
+// --- Configuration ---
 const accountId = aws.getCallerIdentity().then(identity => identity.accountId);
-const certificateArn = "arn:aws:acm:eu-west-2:140293477718:certificate/dc46af13-b4c4-4759-bf96-5b5b04444b4f";
 const domainName = "api.tommybradbury.co.uk";
-const brefPhpLayerArn = "arn:aws:lambda:eu-west-2:534081306603:layer:php-84:34"; 
+const brefPhpLayerArn = "arn:aws:lambda:eu-west-2:534081306603:layer:php-84:34";
 
-// Lambda iam role with cloudwatch permission
+// --- IAM Role for Lambda ---
 const role = new aws.iam.Role("lambdaRole", {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({ Service: "lambda.amazonaws.com" }),
 });
@@ -18,14 +17,13 @@ new aws.iam.RolePolicyAttachment("lambdaPolicyAttachment", {
     policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
 });
 
-/**
- * Creating a Function, Version, and Dev Alias for a given lambda.
- * 
- * @param name 
- * @param zipFileName 
- * @param description 
- * @returns 
- */
+// --- API Gateway (will be created first to get its ID) ---
+const api = new aws.apigatewayv2.Api("httpApi", {
+    protocolType: "HTTP",
+    name: "api.tommybradbury.co.uk-auth-service", // A more specific name for the API resource itself
+});
+
+// --- Helper Function for Lambda Creation ---
 function createBrefFunction(name: string, zipFileName: string, description: string) {
     const lambdaFunction = new aws.lambda.Function(name, {
         name: name,
@@ -46,112 +44,78 @@ function createBrefFunction(name: string, zipFileName: string, description: stri
         name: "dev",
     }, { dependsOn: [lambdaFunction] });
 
-    // Grant API Gateway permission to invoke this Lambda function
+    // Grant API Gateway permission to invoke the Lambda alias
     const permission = new aws.lambda.Permission(`${name}ApiGatewayPermission`, {
         action: "lambda:InvokeFunction",
-        function: lambdaFunction,
+        function: devAlias, // Grant permission to the alias
         principal: "apigateway.amazonaws.com",
-        sourceArn: pulumi.interpolate`arn:aws:execute-api:${aws.config.region}:${accountId}:*/*/*/*`,
-    }, { dependsOn: [lambdaFunction] });
+        sourceArn: pulumi.interpolate`arn:aws:execute-api:${aws.config.region}:${accountId}:${api.id}/*/*`,
+    }, { dependsOn: [devAlias, api] });
 
     return { function: lambdaFunction, version: lambdaFunction.version, alias: devAlias, permission: permission };
 }
 
-
+// --- Lambda Function ---
 const authService = createBrefFunction(
     "AuthServiceLambda",
     "lambda-auth.zip",
     "Handles /auth/ route"
 );
 
-// const otherService = createBrefFunction(
-//     "otherServiceLambda",
-//     "other.zip", // Requires 'lambda_code/status.zip' artifact
-//     "Handles /other/ route"
-// );
-
-// Create a single HTTP API Gateway
-const api = new aws.apigatewayv2.Api("httpApi", {
-    protocolType: "HTTP",
-    name: "api.tommybradbury.co.uk",
-});
-
-// integration for auth group
+// --- API Gateway Integration ---
 const authIntegration = new aws.apigatewayv2.Integration("authIntegration", {
     apiId: api.id,
     integrationType: "AWS_PROXY",
-    integrationUri: authService.alias.arn, 
-    integrationMethod: "POST",
+    integrationUri: authService.alias.invokeArn, // Use the alias's invokeArn for integration
     payloadFormatVersion: "2.0",
 });
 
-// const otherIntegration = new aws.apigatewayv2.Integration("statusIntegration", {
-//     apiId: api.id,
-//     integrationType: "AWS_PROXY",
-//     integrationUri: otherService.alias.arn, 
-//     integrationMethod: "POST",
-//     payloadFormatVersion: "2.0",
-// });
-
-
-// define the Routes
+// --- API Gateway Routes ---
 const authGETRoute = new aws.apigatewayv2.Route("authGETRoute", {
     apiId: api.id,
     routeKey: "GET /auth",
     target: pulumi.interpolate`integrations/${authIntegration.id}`,
 });
+
 const authPOSTRoute = new aws.apigatewayv2.Route("authPOSTRoute", {
     apiId: api.id,
-    routeKey: "GET /auth",
+    routeKey: "POST /auth", // Corrected from GET to POST
     target: pulumi.interpolate`integrations/${authIntegration.id}`,
 });
 
+// --- API Gateway Deployment and Stage ---
+const deployment = new aws.apigatewayv2.Deployment("apiDeployment", {
+    apiId: api.id,
+}, { dependsOn: [authGETRoute, authPOSTRoute] });
 
-// const otherRoute = new aws.apigatewayv2.Route("otherRoute", {
-//     apiId: api.id,
-//     routeKey: "GET /other",
-//     target: pulumi.interpolate`integrations/${otherIntegration.id}`,
-// });
-
-
-// deploy
-const deployment = new aws.apigatewayv2.Deployment("apiDeployment", {apiId: api.id}, {dependsOn: [authGETRoute, authPOSTRoute]});
-
-// create a stage, which is necessary to invoke the API
 const stage = new aws.apigatewayv2.Stage("apiStage", {
     apiId: api.id,
     name: "$default",
     deploymentId: deployment.id,
     autoDeploy: true,
-    defaultRouteSettings: {
-        throttlingBurstLimit: 100,
-        throttlingRateLimit: 50,
-    },
 });
 
-// register domain name with API Gateway (using ACM certificate)
-const APITommyBradbury = new aws.apigatewayv2.DomainName("api.tommybradbury.co.uk", {
+// --- Custom Domain ---
+// **MODIFIED:** Look up the existing custom domain instead of creating a new one.
+const existingDomain = aws.apigatewayv2.getDomainName({
     domainName: domainName,
-    domainNameConfiguration: {
-        certificateArn: certificateArn,
-        endpointType: "REGIONAL", 
-        securityPolicy: "TLS_1_2",
-    },
-    tags: {
-        Name: "api.tommybradbury.co.uk",
-    },
 });
 
-// map the API Gateway Stage to the Custom Domain
+// --- API Mapping ---
+// **MODIFIED:** Create a new API Mapping to connect our new API to the existing domain.
 const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
     apiId: api.id,
-    domainName: APITommyBradbury.domainName,
+    domainName: existingDomain.then(d => d.id), // Use the ID of the looked-up domain
     stage: stage.id,
-    // apiMappingKey empty -> mapped to root (/)
+    // If you want this API to be available under a specific base path, like
+    // 'https://api.tommybradbury.co.uk/auth-v2', you would set:
+    // apiMappingKey: "auth-v2"
+    // Leaving it empty maps it to the root of the domain.
 });
 
-export const apiUrl = api.apiEndpoint; 
-export const authApiUrl = pulumi.interpolate`https://${APITommyBradbury.domainName}/auth`;
-export const dnsTargetDomainName = APITommyBradbury.domainNameConfiguration.targetDomainName;
-export const dnsTargetHostedZoneId = APITommyBradbury.domainNameConfiguration.hostedZoneId;
-export const memeDevLambdaVersion = authService.version;
+// --- Outputs ---
+export const apiUrl = api.apiEndpoint;
+export const customApiUrl = pulumi.interpolate`https://${existingDomain.then(d => d.id)}/auth`;
+export const dnsTargetDomainName = existingDomain.then(d => d.domainNameConfiguration?.targetDomainName);
+export const dnsTargetHostedZoneId = existingDomain.then(d => d.domainNameConfiguration?.hostedZoneId);
+export const lambdaVersion = authService.version;
