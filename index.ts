@@ -5,93 +5,76 @@ import * as path from "path";
 const accountId = aws.getCallerIdentity().then(identity => identity.accountId);
 const domainName = "api.tommybradbury.co.uk";
 const certificateArn = "arn:aws:acm:eu-west-2:140293477718:certificate/dc46af13-b4c4-4759-bf96-5b5b04444b4f";
-const brefPhpLayerArn = "arn:aws:lambda:us-east-1:534081306603:layer:php-84-fpm:34";
+const brefPhpLayerArn = "arn:aws:lambda:eu-west-2:534081306603:layer:php-84-fpm:34";
 
 const role = new aws.iam.Role("lambdaRole", {
-    assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({ Service: "lambda.amazonaws.com" }),
+  assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({ Service: "lambda.amazonaws.com" }),
 });
-
 new aws.iam.RolePolicyAttachment("lambdaPolicyAttachment", {
-    role: role,
-    policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
+  role: role,
+  policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
 });
 
 const api = new aws.apigatewayv2.Api("httpApi", {
-    protocolType: "HTTP",
-    name: "api.tommybradbury.co.uk-auth-service",
+  protocolType: "HTTP",
+  name: "api.tommybradbury.co.uk-auth-service",
 });
 
-/**
- * create bref php lambda function
- * @param name 
- * @param zipFileName 
- * @param description 
- * @returns 
- */
 function createBrefFunction(name: string, zipFileName: string, description: string) {
-    const lambdaFunction = new aws.lambda.Function(name, {
-        name: name,
-        code: new pulumi.asset.FileArchive(path.join(process.cwd(), "lambda_code", zipFileName)),
-        runtime: "provided.al2",
-        architectures: ["x86_64"],
-        handler: "index.php",
-        role: role.arn,
-        memorySize: 256,
-        timeout: 10,
-        layers: [brefPhpLayerArn],
-        tags: { Name: name, Description: description },
-        publish: true
-    });
+  const fn = new aws.lambda.Function(name, {
+    name,
+    code: new pulumi.asset.FileArchive(path.join(process.cwd(), "lambda_code", zipFileName)),
+    runtime: "provided.al2",
+    architectures: ["x86_64"], // or ["arm64"] if you choose arm64 layers
+    handler: "index.php",
+    role: role.arn,
+    memorySize: 256,
+    timeout: 10,
+    layers: [brefPhpLayerArn],
+    publish: true,
+    tags: { Name: name, Description: description },
+  });
 
-    const devAlias = new aws.lambda.Alias(`${name}DevAlias`, {
-        functionName: lambdaFunction.name,
-        functionVersion: lambdaFunction.version,
-        name: "dev",
-    }, { dependsOn: [lambdaFunction] });
+  const alias = new aws.lambda.Alias(`${name}DevAlias`, {
+    functionName: fn.name,
+    functionVersion: fn.version,
+    name: "dev",
+  }, { dependsOn: [fn] });
 
-    const permission = new aws.lambda.Permission(`${name}ApiGatewayPermission`, {
-        action: "lambda:InvokeFunction",
-        function: devAlias.arn,
-        principal: "apigateway.amazonaws.com",
-        sourceArn: pulumi.interpolate`arn:aws:execute-api:${aws.config.region}:${accountId}:${api.id}/*/*`,
-    }, { dependsOn: [devAlias, api] });
+  // Permission for this API to invoke the alias
+  new aws.lambda.Permission(`${name}ApiGatewayPermission`, {
+    action: "lambda:InvokeFunction",
+    function: alias.arn, // grant to alias specifically
+    principal: "apigateway.amazonaws.com",
+    sourceArn: pulumi.interpolate`arn:aws:execute-api:${aws.config.region}:${accountId}:${api.id}/*/*`,
+  }, { dependsOn: [alias, api] });
 
-    return { function: lambdaFunction, version: lambdaFunction.version, alias: devAlias, permission: permission };
+  return { fn, alias };
 }
 
-const authService = createBrefFunction(
-    "AuthServiceLambda",
-    "lambda-auth.zip",
-    "Handles /auth/ route"
-);
+const authService = createBrefFunction("AuthServiceLambda", "lambda-auth.zip", "Handles /auth/ route");
 
 const authIntegration = new aws.apigatewayv2.Integration("authIntegration", {
-    apiId: api.id,
-    integrationType: "AWS_PROXY",
-    integrationUri: authService.alias.invokeArn,
-    payloadFormatVersion: "2.0",
+  apiId: api.id,
+  integrationType: "AWS_PROXY",
+  integrationUri: authService.alias.invokeArn, // alias invoke ARN is fine
+  payloadFormatVersion: "2.0",
 });
 
-
-const authANYRoute = new aws.apigatewayv2.Route("authPOSTRoute", {
-    apiId: api.id,
-    routeKey: "ANY /auth",
-    target: pulumi.interpolate`integrations/${authIntegration.id}`,
+// Keep only the /auth routes
+new aws.apigatewayv2.Route("authANYRoute", {
+  apiId: api.id,
+  routeKey: "ANY /auth",
+  target: pulumi.interpolate`integrations/${authIntegration.id}`,
+});
+new aws.apigatewayv2.Route("authANYProxyRoute", {
+  apiId: api.id,
+  routeKey: "ANY /auth/{proxy+}",
+  target: pulumi.interpolate`integrations/${authIntegration.id}`,
 });
 
-const authANYProxyRoute = new aws.apigatewayv2.Route("authANYProxyRoute", {
-    apiId: api.id,
-    routeKey: "ANY /auth/{proxy+}",
-    target: pulumi.interpolate`integrations/${authIntegration.id}`,
-});
-
-// --- API Gateway Deployment and Stage ---
-const deployment = new aws.apigatewayv2.Deployment("apiDeployment", {
-    apiId: api.id,
-}, { dependsOn: [authANYRoute, authANYProxyRoute] });
-
+// Use autoDeploy, no explicit Deployment resource
 const httpLogs = new aws.cloudwatch.LogGroup("httpApiAccessLogs", { retentionInDays: 14 });
-
 const stage = new aws.apigatewayv2.Stage("apiStage", {
   apiId: api.id,
   name: "$default",
@@ -115,25 +98,26 @@ const stage = new aws.apigatewayv2.Stage("apiStage", {
   },
 });
 
+// Custom domain (must be in the same region as API; cert must be in that region)
 const apiDomain = new aws.apigatewayv2.DomainName("apiDomain", {
-    domainName: domainName,
-    domainNameConfiguration: {
-        certificateArn: certificateArn,
-        endpointType: "REGIONAL",
-        securityPolicy: "TLS_1_2",
-    },
+  domainName: domainName,
+  domainNameConfiguration: {
+    certificateArn: certificateArn,
+    endpointType: "REGIONAL",
+    securityPolicy: "TLS_1_2",
+  },
 });
 
-const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
-    apiId: api.id,
-    domainName: apiDomain.domainName,
-    stage: stage.id,
+// Map to the $default stage; pass the stage name
+new aws.apigatewayv2.ApiMapping("apiMapping", {
+  apiId: api.id,
+  domainName: apiDomain.domainName,
+  stage: stage.name,
 });
 
-// --- Outputs ---
-export const apiUrl = api.apiEndpoint;
-export const customApiUrl = `https://${domainName}/auth`;
-export const lambdaVersion = authService.version;
+// Outputs helpful for testing
+export const apiUrl = api.apiEndpoint; // test this first: https://[apiId].execute-api.[region].amazonaws.com/auth/login
+export const customApiUrl = `https://${domainName}/auth/login`;
 export const dnsTargetDomainName = apiDomain.domainNameConfiguration.apply(dnc => dnc.targetDomainName);
 export const dnsTargetHostedZoneId = apiDomain.domainNameConfiguration.apply(dnc => dnc.hostedZoneId);
 
