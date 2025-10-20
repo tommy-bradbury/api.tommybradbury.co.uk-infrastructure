@@ -70,23 +70,17 @@ const authIntegration = new aws.apigatewayv2.Integration("authIntegration", {
     payloadFormatVersion: "2.0",
 });
 
-// --- API Gateway Routes ---
-const authGETRoute = new aws.apigatewayv2.Route("authGETRoute", {
-    apiId: api.id,
-    routeKey: "GET /auth",
-    target: pulumi.interpolate`integrations/${authIntegration.id}`,
-});
 
-const authPOSTRoute = new aws.apigatewayv2.Route("authPOSTRoute", {
+const authANYRoute = new aws.apigatewayv2.Route("authPOSTRoute", {
     apiId: api.id,
-    routeKey: "POST /auth",
+    routeKey: "ANY /auth",
     target: pulumi.interpolate`integrations/${authIntegration.id}`,
 });
 
 // --- API Gateway Deployment and Stage ---
 const deployment = new aws.apigatewayv2.Deployment("apiDeployment", {
     apiId: api.id,
-}, { dependsOn: [authGETRoute, authPOSTRoute] });
+}, { dependsOn: [authANYRoute] });
 
 const stage = new aws.apigatewayv2.Stage("apiStage", {
     apiId: api.id,
