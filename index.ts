@@ -78,10 +78,16 @@ const authANYRoute = new aws.apigatewayv2.Route("authPOSTRoute", {
     target: pulumi.interpolate`integrations/${authIntegration.id}`,
 });
 
+const authANYProxyRoute = new aws.apigatewayv2.Route("authANYProxyRoute", {
+    apiId: api.id,
+    routeKey: "ANY /auth/{proxy+}",
+    target: pulumi.interpolate`integrations/${authIntegration.id}`,
+});
+
 // --- API Gateway Deployment and Stage ---
 const deployment = new aws.apigatewayv2.Deployment("apiDeployment", {
     apiId: api.id,
-}, { dependsOn: [authANYRoute] });
+}, { dependsOn: [authANYRoute, authANYProxyRoute] });
 
 const stage = new aws.apigatewayv2.Stage("apiStage", {
     apiId: api.id,
