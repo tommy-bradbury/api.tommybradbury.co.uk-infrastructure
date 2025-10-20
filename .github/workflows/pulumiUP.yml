@@ -62,6 +62,11 @@ jobs:
           done <<< "$ARTIFACT_LIST"
         shell: bash
 
+      - name: Verify Downloaded Artifacts
+        run: |
+          echo "Verifying contents of the working directory..."
+          ls -lR
+
       - name: Deploy
         uses: pulumi/actions@v5
         with:
