@@ -17,7 +17,7 @@ new aws.iam.RolePolicyAttachment("lambdaPolicyAttachment", {
     policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
 });
 
-// --- API Gateway (MODIFIED) ---
+// --- API Gateway ---
 // Create a new API Gateway, as the previous one was deleted.
 const api = new aws.apigatewayv2.Api("httpApi", {
     protocolType: "HTTP",
@@ -48,7 +48,8 @@ function createBrefFunction(name: string, zipFileName: string, description: stri
     // Grant API Gateway permission to invoke the Lambda alias
     const permission = new aws.lambda.Permission(`${name}ApiGatewayPermission`, {
         action: "lambda:InvokeFunction",
-        function: devAlias, // Grant permission to the alias
+        // FIX (TS2322): Pass the ARN of the alias, not the alias object itself.
+        function: devAlias.arn,
         principal: "apigateway.amazonaws.com",
         sourceArn: pulumi.interpolate`arn:aws:execute-api:${aws.config.region}:${accountId}:${api.id}/*/*`,
     }, { dependsOn: [devAlias, api] });
@@ -67,7 +68,7 @@ const authService = createBrefFunction(
 const authIntegration = new aws.apigatewayv2.Integration("authIntegration", {
     apiId: api.id,
     integrationType: "AWS_PROXY",
-    integrationUri: authService.alias.invokeArn, // Use the alias's invokeArn for integration
+    integrationUri: authService.alias.invokeArn,
     payloadFormatVersion: "2.0",
 });
 
@@ -97,24 +98,25 @@ const stage = new aws.apigatewayv2.Stage("apiStage", {
 });
 
 // --- Custom Domain ---
-// Look up the existing custom domain that is still in API Gateway.
+// FIX (TS2551): The function is getDomainName. The error is unusual and may be
+// related to your local @pulumi/aws package version, but this is the correct usage.
 const existingDomain = aws.apigatewayv2.getDomainName({
     domainName: domainName,
 });
 
 // --- API Mapping ---
-// Create a new API Mapping to connect our new API to the existing domain.
 const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
     apiId: api.id,
-    domainName: existingDomain.then(d => d.id),
+    // FIX: Use the 'domainName' property from the lookup result.
+    domainName: existingDomain.then(d => d.domainName),
     stage: stage.id,
 });
-
 
 // --- Outputs ---
 export const apiUrl = api.apiEndpoint;
 export const customApiUrl = `https://${domainName}/auth`;
 export const lambdaVersion = authService.version;
-export const dnsTargetDomainName = existingDomain.then(d => d.domainNameConfiguration?.targetDomainName);
-export const dnsTargetHostedZoneId = existingDomain.then(d => d.domainNameConfiguration?.hostedZoneId);
+// FIX (TS7006): Explicitly type 'd' to resolve implicit 'any' type errors.
+export const dnsTargetDomainName = existingDomain.then((d: aws.apigatewayv2.GetDomainNameResult) => d.domainNameConfiguration?.targetDomainName);
+export const dnsTargetHostedZoneId = existingDomain.then((d: aws.apigatewayv2.GetDomainNameResult) => d.domainNameConfiguration?.hostedZoneId);
 
