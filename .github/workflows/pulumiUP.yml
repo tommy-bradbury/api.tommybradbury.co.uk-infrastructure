@@ -11,7 +11,7 @@ jobs:
       AWS_REGION: ${{ github.event.client_payload.aws_region }}
       ARTIFACT_BUCKET: ${{ github.event.client_payload.artifact_bucket }}
       ARTIFACT_LIST: |
-        auth_key:auth.zip
+        auth_key:lambda-auth.zip
         
     runs-on: ubuntu-latest
     
