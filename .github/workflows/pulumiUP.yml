@@ -30,19 +30,20 @@ jobs:
           role-to-assume: arn:aws:iam::140293477718:role/api.tommybradbury.co.uk-pulumiDeploymentUser
           role-duration-seconds: 900
           aws-region: ${{ env.AWS_REGION }}
-          
+
       - name: Verify AWS Credentials and Permissions
         run: |
           echo "--- Verifying AWS identity ---"
           aws sts get-caller-identity
           
           echo "--- Simulating iam:CreateServiceLinkedRole permission ---"
-          # We use the static role ARN here because simulate-principal-policy
-          # does not work with the temporary ARN from get-caller-identity.
+          # We use the static role ARN and provide the missing context key
+          # required by the Condition in the IAM policy.
           aws iam simulate-principal-policy \
             --policy-source-arn "arn:aws:iam::140293477718:role/api.tommybradbury.co.uk-pulumiDeploymentUser" \
             --action-names "iam:CreateServiceLinkedRole" \
-            --resource-arns "arn:aws:iam::*:role/aws-service-role/apigateway.amazonaws.com/AWSServiceRoleForAPIGateway"
+            --resource-arns "arn:aws:iam::*:role/aws-service-role/apigateway.amazonaws.com/AWSServiceRoleForAPIGateway" \
+            --context-entries '{"ContextKeyName": "iam:AWSServiceName", "ContextKeyValues": ["apigateway.amazonaws.com"], "ContextKeyType": "string"}'
         shell: bash
 
       - name: Setup Node.js
@@ -93,4 +94,3 @@ jobs:
           stack-name: dev
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-
