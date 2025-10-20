@@ -17,10 +17,11 @@ new aws.iam.RolePolicyAttachment("lambdaPolicyAttachment", {
     policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
 });
 
-// --- API Gateway (will be created first to get its ID) ---
+// --- API Gateway (MODIFIED) ---
+// Create a new API Gateway, as the previous one was deleted.
 const api = new aws.apigatewayv2.Api("httpApi", {
     protocolType: "HTTP",
-    name: "api.tommybradbury.co.uk-auth-service", // A more specific name for the API resource itself
+    name: "api.tommybradbury.co.uk-auth-service", // A specific name for this new API
 });
 
 // --- Helper Function for Lambda Creation ---
@@ -79,7 +80,7 @@ const authGETRoute = new aws.apigatewayv2.Route("authGETRoute", {
 
 const authPOSTRoute = new aws.apigatewayv2.Route("authPOSTRoute", {
     apiId: api.id,
-    routeKey: "POST /auth", // Corrected from GET to POST
+    routeKey: "POST /auth",
     target: pulumi.interpolate`integrations/${authIntegration.id}`,
 });
 
@@ -96,26 +97,24 @@ const stage = new aws.apigatewayv2.Stage("apiStage", {
 });
 
 // --- Custom Domain ---
-// **MODIFIED:** Look up the existing custom domain instead of creating a new one.
+// Look up the existing custom domain that is still in API Gateway.
 const existingDomain = aws.apigatewayv2.getDomainName({
     domainName: domainName,
 });
 
 // --- API Mapping ---
-// **MODIFIED:** Create a new API Mapping to connect our new API to the existing domain.
+// Create a new API Mapping to connect our new API to the existing domain.
 const apiMapping = new aws.apigatewayv2.ApiMapping("apiMapping", {
     apiId: api.id,
-    domainName: existingDomain.then(d => d.id), // Use the ID of the looked-up domain
+    domainName: existingDomain.then(d => d.id),
     stage: stage.id,
-    // If you want this API to be available under a specific base path, like
-    // 'https://api.tommybradbury.co.uk/auth-v2', you would set:
-    // apiMappingKey: "auth-v2"
-    // Leaving it empty maps it to the root of the domain.
 });
+
 
 // --- Outputs ---
 export const apiUrl = api.apiEndpoint;
-export const customApiUrl = pulumi.interpolate`https://${existingDomain.then(d => d.id)}/auth`;
+export const customApiUrl = `https://${domainName}/auth`;
+export const lambdaVersion = authService.version;
 export const dnsTargetDomainName = existingDomain.then(d => d.domainNameConfiguration?.targetDomainName);
 export const dnsTargetHostedZoneId = existingDomain.then(d => d.domainNameConfiguration?.hostedZoneId);
-export const lambdaVersion = authService.version;
+
