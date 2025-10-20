@@ -86,7 +86,6 @@ const deployment = new aws.apigatewayv2.Deployment("apiDeployment", {
 const stage = new aws.apigatewayv2.Stage("apiStage", {
     apiId: api.id,
     name: "$default",
-    deploymentId: deployment.id,
     autoDeploy: true,
 });
 
