@@ -33,17 +33,41 @@ jobs:
 
       - name: Fetch and Display Active IAM Policy
         run: |
-          echo "--- Fetching the active IAM policy document from the role ---"
-          # This command retrieves the policy that is ACTUALLY attached to the role in AWS.
-          # NOTE: If your policy has a different name, you will need to update it here.
-          # Based on previous logs, the policy is likely named 'api.tommybradbury.co.uk-pulumiDeployment'.
-          POLICY_NAME="api.tommybradbury.co.uk-pulumiDeployment"
-          
-          echo "Attempting to fetch inline policy named: $POLICY_NAME"
-          aws iam get-role-policy \
-            --role-name "Pulumi-APIDeployment-Policy-v2" \
-            --policy-name "$POLICY_NAME" \
-            --query 'PolicyDocument' --output json | jq .
+          echo "--- Fetching active IAM policies for the role ---"
+          ROLE_NAME="api.tommybradbury.co.uk-pulumiDeploymentUser"
+
+          # Get the ARNs of all managed policies attached to the role
+          POLICY_ARNS=$(aws iam list-attached-role-policies \
+            --role-name "$ROLE_NAME" \
+            --query 'AttachedPolicies[].PolicyArn' \
+            --output text)
+
+          if [ -z "$POLICY_ARNS" ]; then
+              echo "No attached managed policies found for role $ROLE_NAME."
+              exit 1
+          fi
+
+          echo "Found attached policy ARNs: $POLICY_ARNS"
+
+          # Loop through each policy ARN and get its document
+          for POLICY_ARN in $POLICY_ARNS; do
+            echo "--- Reading document for policy: $POLICY_ARN ---"
+            
+            # Get the Default Version ID of the policy
+            VERSION_ID=$(aws iam get-policy \
+              --policy-arn "$POLICY_ARN" \
+              --query 'Policy.DefaultVersionId' \
+              --output text)
+              
+            echo "Found policy version: $VERSION_ID"
+
+            # Get and print the Policy Document for that version
+            aws iam get-policy-version \
+              --policy-arn "$POLICY_ARN" \
+              --version-id "$VERSION_ID" \
+              --query 'PolicyVersion.Document' \
+              --output json | jq .
+          done
         shell: bash
 
       - name: Setup Node.js
