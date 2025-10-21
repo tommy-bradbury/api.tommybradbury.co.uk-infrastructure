@@ -18,6 +18,11 @@ new aws.iam.RolePolicyAttachment("lambdaPolicyAttachment", {
 const api = new aws.apigatewayv2.Api("httpApi", {
   protocolType: "HTTP",
   name: "api.tommybradbury.co.uk-auth-service",
+  corsConfiguration: {
+    allowOrigins: ["https://tommybradbury.co.uk", "https://www.tommybradbury.co.uk"],
+    allowMethods: ["ANY", "GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  },
 });
 
 function createBrefFunction(name: string, zipFileName: string, description: string) {
