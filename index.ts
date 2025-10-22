@@ -20,7 +20,7 @@ const api = new aws.apigatewayv2.Api("httpApi", {
   name: "api.tommybradbury.co.uk-auth-service",
   corsConfiguration: {
     allowOrigins: ["https://tommybradbury.co.uk", "https://www.tommybradbury.co.uk"],
-    allowMethods: ["ANY", "GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
   },
 });
